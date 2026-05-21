@@ -105,7 +105,7 @@ def update_summary(raw_sheet, summary_sheet):
 
 # ===== 페이지 설정 =====
 st.set_page_config(page_title="이미지 심사 시스템", layout="wide")
-st.title("🚀 이미지 심사 시스템")
+st.title("🚀 농-Life 사진·영상 20주년 특별공모전 예비심사 시스템")
 
 # ===== 이름 입력 =====
 if 'name' not in st.session_state:
