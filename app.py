@@ -105,7 +105,6 @@ def save_result(
         "심사로그"
     )
 
-    # 헤더 생성
     if not log_sheet.get_all_values():
 
         log_sheet.append_row([
@@ -117,7 +116,6 @@ def save_result(
             "부문"
         ])
 
-    # append-only 저장
     log_sheet.append_row([
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         judge_name,
@@ -155,11 +153,8 @@ def update_summary(spreadsheet):
     if df.empty:
         return
 
-    # 최신순 정렬
     df = df.sort_values("시간")
 
-    # 동일 심사위원 + 동일 파일
-    # 가장 마지막 결과만 인정
     latest = df.drop_duplicates(
         subset=["심사위원", "파일ID"],
         keep="last"
@@ -352,35 +347,31 @@ with st.sidebar:
             st.session_state.index
         )
 
-        border_color = (
-            "#FF4B4B"
-            if is_current
-            else "#CCCCCC"
+        image_url = (
+            f"https://drive.google.com/thumbnail?id={file_id}&sz=w300"
         )
 
-        st.markdown(
-            f"""
-            <img
-                src="https://drive.google.com/thumbnail?id={file_id}&sz=w300"
-                style="
-                    width:100%;
-                    border-radius:8px;
-                    border:3px solid {border_color};
-                    margin-bottom:4px;
-                "
-            >
-            """,
-            unsafe_allow_html=True
+        st.image(
+            image_url,
+            use_container_width=True
+        )
+
+        button_text = (
+            f"👉 {actual_index + 1}번"
+            if is_current
+            else f"{actual_index + 1}번"
         )
 
         if st.button(
-            f"{actual_index + 1}번",
+            button_text,
             key=f"move_{actual_index}",
             use_container_width=True
         ):
 
             st.session_state.index = actual_index
             st.rerun()
+
+        st.write("")
 
 # =========================================================
 # 현재 파일
