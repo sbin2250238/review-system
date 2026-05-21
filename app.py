@@ -75,7 +75,7 @@ def get_or_create_sheet(spreadsheet, title):
         )
 
 # =========================================================
-# 드라이브 파일 가져오기
+# 파일 불러오기
 # =========================================================
 
 @st.cache_data(ttl=30)
@@ -98,7 +98,7 @@ def get_files_from_drive(folder_id, category):
     return results.get("files", [])
 
 # =========================================================
-# 결과 저장
+# 저장
 # =========================================================
 
 def save_result(
@@ -139,7 +139,7 @@ def save_result(
     update_summary(spreadsheet)
 
 # =========================================================
-# 집계 업데이트
+# 집계
 # =========================================================
 
 def update_summary(spreadsheet):
@@ -191,16 +191,6 @@ def update_summary(spreadsheet):
         grouped["불합격"]
     )
 
-    grouped = grouped[
-        [
-            "부문",
-            "파일명",
-            "합격",
-            "불합격",
-            "총심사수"
-        ]
-    ]
-
     summary_sheet.clear()
 
     summary_sheet.update(
@@ -211,7 +201,7 @@ def update_summary(spreadsheet):
     )
 
 # =========================================================
-# 세션 상태
+# 세션
 # =========================================================
 
 if "name" not in st.session_state:
@@ -277,7 +267,7 @@ if not st.session_state.category:
     st.stop()
 
 # =========================================================
-# 파일 불러오기
+# 파일 로드
 # =========================================================
 
 category = st.session_state.category
@@ -322,7 +312,7 @@ with st.sidebar:
 
     st.write("---")
 
-    st.caption("파일 목록")
+    st.caption("📸 파일 목록")
 
     start = max(
         0,
@@ -342,13 +332,8 @@ with st.sidebar:
 
         file_id = file["id"]
 
-        is_current = (
-            actual_index ==
-            st.session_state.index
-        )
-
         image_url = (
-            f"https://drive.google.com/uc?export=view&id={file_id}"
+            f"https://drive.google.com/thumbnail?id={file_id}&sz=w300"
         )
 
         st.image(
@@ -356,22 +341,14 @@ with st.sidebar:
             use_container_width=True
         )
 
-        button_text = (
-            f"👉 {actual_index + 1}번"
-            if is_current
-            else f"{actual_index + 1}번"
-        )
-
         if st.button(
-            button_text,
+            f"{actual_index + 1}번으로 이동",
             key=f"move_{actual_index}",
             use_container_width=True
         ):
 
             st.session_state.index = actual_index
             st.rerun()
-
-        st.write("")
 
 # =========================================================
 # 현재 파일
@@ -392,37 +369,36 @@ st.subheader(
 )
 
 # =========================================================
-# 이미지 / 영상 출력
+# 메인 출력
 # =========================================================
 
 if "video" in mime_type:
 
     video_url = (
-        f"https://drive.google.com/file/d/{file_id}/preview"
+        f"https://drive.google.com/uc?id={file_id}"
     )
 
-    st.components.v1.html(
-        f"""
-        <iframe
-            src="{video_url}"
-            width="100%"
-            height="700"
-            allow="autoplay"
-            style="border:none;border-radius:10px;">
-        </iframe>
-        """,
-        height=700
-    )
+    st.video(video_url)
 
 else:
 
     image_url = (
-        f"https://drive.google.com/uc?export=view&id={file_id}"
+        f"https://drive.google.com/thumbnail?id={file_id}&sz=w1600"
     )
 
-    st.image(
-        image_url,
-        use_container_width=True
+    st.markdown(
+        f'''
+        <div style="display:flex; justify-content:center;">
+            <img src="{image_url}"
+            style="
+                max-height:70vh;
+                max-width:100%;
+                border-radius:10px;
+                object-fit:contain;
+            ">
+        </div>
+        ''',
+        unsafe_allow_html=True
     )
 
 st.write(file_name)
@@ -486,14 +462,3 @@ with col3:
 
             st.session_state.index -= 1
             st.rerun()
-
-# =========================================================
-# 마지막 파일
-# =========================================================
-
-if (
-    st.session_state.index ==
-    total_files - 1
-):
-
-    st.success("마지막 파일입니다.")
