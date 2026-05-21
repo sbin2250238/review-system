@@ -8,7 +8,7 @@ SPREADSHEET_ID = "1tLdbLIvTfpCS2HERHfeUBHGSL1dEKpPNGYk-9EJZvjU"
 
 FOLDERS = {
     "일반": "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd",
-    "숏폼": "1baVZLTFNhL0AWuK4DpIbcJU7lU70wHtf"
+    "숏폼": "여기에_숏폼_폴더ID_입력"
 }
 
 THUMB_RANGE = 5
