@@ -7,8 +7,8 @@ from googleapiclient.discovery import build
 SPREADSHEET_ID = "1tLdbLIvTfpCS2HERHfeUBHGSL1dEKpPNGYk-9EJZvjU"
 
 FOLDERS = {
-    "일반": "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd",
-    "숏폼": "1baVZLTFNhL0AWuK4DpIbcJU7lU70wHtf"
+    "사진": "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd",
+    "영상": "1baVZLTFNhL0AWuK4DpIbcJU7lU70wHtf"
 }
 
 THUMB_RANGE = 5
