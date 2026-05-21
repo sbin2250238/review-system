@@ -2,6 +2,8 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+import requests
+from google.auth.transport.requests import Request
 
 # ===== 설정 =====
 SPREADSHEET_ID = "1tLdbLIvTfpCS2HERHfeUBHGSL1dEKpPNGYk-9EJZvjU"
@@ -18,7 +20,7 @@ THUMB_RANGE = 5
 def get_services():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.readonly"
+        "https://www.googleapis.com/auth/drive"
     ]
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
@@ -27,7 +29,7 @@ def get_services():
     sheet_client = gspread.authorize(creds)
     drive_client = build("drive", "v3", credentials=creds)
     spreadsheet = sheet_client.open_by_key(SPREADSHEET_ID)
-    return sheet_client, drive_client, spreadsheet
+    return creds, sheet_client, drive_client, spreadsheet
 
 def get_or_create_sheet(spreadsheet, title):
     try:
@@ -35,24 +37,34 @@ def get_or_create_sheet(spreadsheet, title):
     except:
         return spreadsheet.add_worksheet(title=title, rows=1000, cols=50)
 
+# ===== 파일 바이트 직접 다운로드 =====
+def download_file(file_id):
+    creds, _, __, ___ = get_services()
+    if not creds.valid:
+        creds.refresh(Request())
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+    headers = {"Authorization": f"Bearer {creds.token}"}
+    response = requests.get(url, headers=headers)
+    return response.content
+
 # ===== 드라이브 폴더에서 파일 로드 =====
 @st.cache_data(ttl=60)
 def get_files_from_drive(folder_id, category):
-    _, drive_client, __ = get_services()
+    _, __, drive_client, ___ = get_services()
     if category == "숏폼":
         mime_filter = "mimeType contains 'video/'"
     else:
         mime_filter = "mimeType contains 'image/'"
     results = drive_client.files().list(
         q=f"'{folder_id}' in parents and {mime_filter} and trashed=false",
-        fields="files(id, name)",
+        fields="files(id, name, mimeType)",
         orderBy="name"
     ).execute()
     return results.get("files", [])
 
 # ===== 결과 저장 =====
 def save_result(judge_name, file_name, result, category):
-    _, __, spreadsheet = get_services()
+    _, __, ___, spreadsheet = get_services()
     raw_sheet = get_or_create_sheet(spreadsheet, category)
     summary_sheet = get_or_create_sheet(spreadsheet, f"{category}_집계")
 
@@ -147,7 +159,7 @@ if not files:
 
 total_files = len(files)
 
-# ===== 사이드바 썸네일 =====
+# ===== 사이드바 =====
 with st.sidebar:
     st.caption(f"심사위원: {st.session_state.name}")
     st.caption(f"부문: {category}")
@@ -170,19 +182,21 @@ with st.sidebar:
         border_color = "#FF4B4B" if is_current else "#ccc"
 
         if category == "사진":
-            st.markdown(
-                f'''<img src="https://drive.google.com/thumbnail?id={file_id}&sz=w200"
-                style="width:100%; border-radius:6px; border: 3px solid {border_color}; margin-bottom:2px;">
-                <p style="text-align:center; font-size:11px; margin:0 0 4px 0;">{actual_index + 1}번</p>''',
-                unsafe_allow_html=True
-            )
+            try:
+                img_bytes = download_file(file_id)
+                st.markdown(f'<div style="border: 3px solid {border_color}; border-radius:6px; margin-bottom:4px; overflow:hidden;">', unsafe_allow_html=True)
+                st.image(img_bytes, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+                st.caption(f"{actual_index + 1}번")
+            except:
+                st.caption(f"{actual_index + 1}번 (로드 실패)")
         else:
-            icon = "▶️" if not is_current else "👉"
+            icon = "👉" if is_current else "▶️"
             st.markdown(
-                f'''<div style="width:100%; padding:8px; border-radius:6px; border: 3px solid {border_color};
-                margin-bottom:2px; text-align:center; font-size:12px;">
-                {icon} {actual_index + 1}번<br><span style="font-size:10px;">{file_name[:15]}...</span>
-                </div>''',
+                f'''<div style="width:100%; padding:8px; border-radius:6px;
+                border: 3px solid {border_color}; margin-bottom:4px; text-align:center; font-size:12px;">
+                {icon} {actual_index + 1}번<br>
+                <span style="font-size:10px;">{file_name[:20]}</span></div>''',
                 unsafe_allow_html=True
             )
 
@@ -199,27 +213,22 @@ if st.session_state.index < total_files:
     current_file = files[st.session_state.index]
     current_id = current_file["id"]
     current_name = current_file["name"]
+    current_mime = current_file["mimeType"]
 
     st.subheader(f"📊 [{category}] 심사 중: {current_num}번째 / 총 {total_files}개")
 
     if category == "사진":
-        st.markdown(
-            f'''<div style="display:flex; justify-content:center;">
-            <img src="https://drive.google.com/thumbnail?id={current_id}&sz=w1200"
-            style="max-height:60vh; max-width:100%; border-radius:8px; object-fit:contain;">
-            </div>''',
-            unsafe_allow_html=True
-        )
+        try:
+            img_bytes = download_file(current_id)
+            st.image(img_bytes, use_container_width=False, width=800)
+        except Exception as e:
+            st.error(f"이미지 로드 실패: {e}")
     else:
-        # 숏폼 MP4 재생
-        video_url = f"https://drive.google.com/file/d/{current_id}/preview"
-        st.markdown(
-            f'''<div style="display:flex; justify-content:center;">
-            <iframe src="{video_url}" width="640" height="360"
-            allow="autoplay" style="border-radius:8px; border:none;"></iframe>
-            </div>''',
-            unsafe_allow_html=True
-        )
+        try:
+            video_bytes = download_file(current_id)
+            st.video(video_bytes)
+        except Exception as e:
+            st.error(f"영상 로드 실패: {e}")
 
     st.write("---")
 
