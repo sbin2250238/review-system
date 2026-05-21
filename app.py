@@ -6,7 +6,7 @@ from datetime import datetime
 
 # ===== 설정 =====
 SPREADSHEET_ID = "1tLdbLIvTfpCS2HERHfeUBHGSL1dEKpPNGYk-9EJZvjU"
-FOLDER_ID = "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd?usp=drive_link"  # ← 새로 추가!
+FOLDER_ID = "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd"  # ← 새로 추가!
 
 # ===== 구글 연결 =====
 @st.cache_resource
