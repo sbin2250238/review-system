@@ -1,464 +1,225 @@
 import streamlit as st
 import gspread
-import pandas as pd
-
-from datetime import datetime
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
-# =========================================================
-# 설정
-# =========================================================
-
+# ===== 설정 =====
 SPREADSHEET_ID = "1tLdbLIvTfpCS2HERHfeUBHGSL1dEKpPNGYk-9EJZvjU"
 
 FOLDERS = {
     "사진": "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd",
-    "영상": "1baVZLTFNhL0AWuK4DpIbcJU7lU70wHtf"
+    "숏폼": "1baVZLTFNhL0AWuK4DpIbcJU7lU70wHtf"
 }
 
 THUMB_RANGE = 5
 
-# =========================================================
-# 페이지 설정
-# =========================================================
-
-st.set_page_config(
-    page_title="사진/영상 심사 시스템",
-    layout="wide"
-)
-
-st.title("🚀 사진/영상 심사 시스템")
-
-# =========================================================
-# 구글 연결
-# =========================================================
-
+# ===== 구글 연결 =====
 @st.cache_resource
 def get_services():
-
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive.readonly"
     ]
-
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=scopes
     )
-
     sheet_client = gspread.authorize(creds)
-
-    drive_client = build(
-        "drive",
-        "v3",
-        credentials=creds
-    )
-
-    spreadsheet = sheet_client.open_by_key(
-        SPREADSHEET_ID
-    )
-
-    return drive_client, spreadsheet
-
+    drive_client = build("drive", "v3", credentials=creds)
+    spreadsheet = sheet_client.open_by_key(SPREADSHEET_ID)
+    return sheet_client, drive_client, spreadsheet
 
 def get_or_create_sheet(spreadsheet, title):
-
     try:
         return spreadsheet.worksheet(title)
-
     except:
-        return spreadsheet.add_worksheet(
-            title=title,
-            rows=5000,
-            cols=20
-        )
+        return spreadsheet.add_worksheet(title=title, rows=1000, cols=50)
 
-# =========================================================
-# 파일 불러오기
-# =========================================================
-
-@st.cache_data(ttl=30)
-def get_files_from_drive(folder_id, category):
-
-    drive_client, _ = get_services()
-
-    if category == "사진":
-        mime_query = "mimeType contains 'image/'"
-
-    else:
-        mime_query = "mimeType contains 'video/'"
-
+# ===== 드라이브 폴더에서 이미지 로드 =====
+@st.cache_data(ttl=60)
+def get_images_from_drive(folder_id):
+    _, drive_client, __ = get_services()
     results = drive_client.files().list(
-        q=f"'{folder_id}' in parents and {mime_query} and trashed=false",
-        fields="files(id,name,mimeType)",
+        q=f"'{folder_id}' in parents and mimeType contains 'image/' and trashed=false",
+        fields="files(id, name)",
         orderBy="name"
     ).execute()
-
     return results.get("files", [])
 
-# =========================================================
-# 저장
-# =========================================================
+# ===== 결과 저장 =====
+def save_result(judge_name, file_name, result, category):
+    _, __, spreadsheet = get_services()
+    raw_sheet = get_or_create_sheet(spreadsheet, category)
+    summary_sheet = get_or_create_sheet(spreadsheet, f"{category}_집계")
 
-def save_result(
-    judge_name,
-    file_id,
-    file_name,
-    result,
-    category
-):
+    data = raw_sheet.get_all_values()
+    if not data:
+        raw_sheet.append_row(["파일명"])
+        data = [["파일명"]]
 
-    _, spreadsheet = get_services()
+    headers = data[0]
 
-    log_sheet = get_or_create_sheet(
-        spreadsheet,
-        "심사로그"
-    )
+    if judge_name not in headers:
+        headers.append(judge_name)
+        col_index = len(headers)
+        raw_sheet.update_cell(1, col_index, judge_name)
+    else:
+        col_index = headers.index(judge_name) + 1
 
-    if not log_sheet.get_all_values():
+    file_names = [row[0] for row in data[1:]] if len(data) > 1 else []
+    if file_name not in file_names:
+        row_index = len(data) + 1
+        raw_sheet.update_cell(row_index, 1, file_name)
+    else:
+        row_index = file_names.index(file_name) + 2
 
-        log_sheet.append_row([
-            "시간",
-            "심사위원",
-            "파일ID",
-            "파일명",
-            "결과",
-            "부문"
-        ])
+    raw_sheet.update_cell(row_index, col_index, result)
+    update_summary(raw_sheet, summary_sheet)
 
-    log_sheet.append_row([
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        judge_name,
-        file_id,
-        file_name,
-        result,
-        category
-    ])
-
-    update_summary(spreadsheet)
-
-# =========================================================
-# 집계
-# =========================================================
-
-def update_summary(spreadsheet):
-
-    log_sheet = get_or_create_sheet(
-        spreadsheet,
-        "심사로그"
-    )
-
-    summary_sheet = get_or_create_sheet(
-        spreadsheet,
-        "최종집계"
-    )
-
-    records = log_sheet.get_all_records()
-
-    if not records:
+# ===== 집계 업데이트 =====
+def update_summary(raw_sheet, summary_sheet):
+    data = raw_sheet.get_all_values()
+    if not data or len(data) < 2:
         return
-
-    df = pd.DataFrame(records)
-
-    if df.empty:
-        return
-
-    df = df.sort_values("시간")
-
-    latest = df.drop_duplicates(
-        subset=["심사위원", "파일ID"],
-        keep="last"
-    )
-
-    grouped = (
-        latest.groupby(
-            ["부문", "파일명", "결과"]
-        )
-        .size()
-        .unstack(fill_value=0)
-        .reset_index()
-    )
-
-    if "합격" not in grouped.columns:
-        grouped["합격"] = 0
-
-    if "불합격" not in grouped.columns:
-        grouped["불합격"] = 0
-
-    grouped["총심사수"] = (
-        grouped["합격"] +
-        grouped["불합격"]
-    )
 
     summary_sheet.clear()
+    summary_sheet.append_row(["파일명", "합격수", "불합격수", "총심사수"])
 
-    summary_sheet.update(
-        "A1",
-        [
-            grouped.columns.tolist()
-        ] + grouped.values.tolist()
-    )
+    for row in data[1:]:
+        if not row[0]:
+            continue
+        file_name = row[0]
+        votes = row[1:]
+        pass_count = votes.count("합격")
+        fail_count = votes.count("불합격")
+        total = pass_count + fail_count
+        summary_sheet.append_row([file_name, pass_count, fail_count, total])
 
-# =========================================================
-# 세션
-# =========================================================
+# ===== 페이지 설정 =====
+st.set_page_config(page_title="이미지 심사 시스템", layout="wide")
+st.title("🚀 이미지 심사 시스템")
 
-if "name" not in st.session_state:
+# ===== 세션 초기화 =====
+if 'name' not in st.session_state:
     st.session_state.name = ""
-
-if "category" not in st.session_state:
+if 'category' not in st.session_state:
     st.session_state.category = ""
-
-if "index" not in st.session_state:
+if 'index' not in st.session_state:
     st.session_state.index = 0
 
-# =========================================================
-# 이름 입력
-# =========================================================
-
+# ===== 이름 입력 =====
 if not st.session_state.name:
-
-    st.subheader("👤 심사위원 이름 입력")
-
-    name_input = st.text_input(
-        "이름",
-        placeholder="예: 홍길동"
-    )
-
-    if st.button(
-        "다음",
-        use_container_width=True
-    ):
-
+    st.subheader("👤 심사위원 이름을 입력해주세요")
+    name_input = st.text_input("이름", placeholder="예: 홍길동")
+    if st.button("다음", use_container_width=True):
         if name_input.strip():
-
-            st.session_state.name = (
-                name_input.strip()
-            )
-
+            st.session_state.name = name_input.strip()
             st.rerun()
-
         else:
-            st.warning("이름을 입력해주세요.")
-
+            st.warning("이름을 입력해주세요!")
     st.stop()
 
-# =========================================================
-# 부문 선택
-# =========================================================
-
+# ===== 부문 선택 =====
 if not st.session_state.category:
-
-    st.subheader("📂 부문 선택")
-
+    st.subheader("📂 심사할 부문을 선택해주세요")
     for cat in FOLDERS:
-
-        if st.button(
-            f"{cat} 심사하기",
-            use_container_width=True
-        ):
-
+        if st.button(f"📁 {cat} 부문 심사하기", use_container_width=True):
             st.session_state.category = cat
             st.session_state.index = 0
-
             st.rerun()
-
     st.stop()
 
-# =========================================================
-# 파일 로드
-# =========================================================
-
+# ===== 이미지 불러오기 =====
 category = st.session_state.category
-
 folder_id = FOLDERS[category]
+images = get_images_from_drive(folder_id)
 
-files = get_files_from_drive(
-    folder_id,
-    category
-)
-
-if not files:
-
-    st.error("파일이 없습니다.")
+if not images:
+    st.error("📁 드라이브 폴더에 이미지가 없거나 폴더 ID가 잘못되었습니다.")
     st.stop()
 
-total_files = len(files)
+total_images = len(images)
 
-# =========================================================
-# 사이드바
-# =========================================================
-
+# ===== 사이드바 썸네일 =====
 with st.sidebar:
-
-    st.caption(
-        f"심사위원: {st.session_state.name}"
-    )
-
-    st.caption(
-        f"부문: {category}"
-    )
-
-    if st.button(
-        "🔀 부문 변경",
-        use_container_width=True
-    ):
-
+    st.caption(f"심사위원: {st.session_state.name}")
+    st.caption(f"부문: {category}")
+    if st.button("🔀 부문 변경", use_container_width=True):
         st.session_state.category = ""
         st.session_state.index = 0
-
         st.rerun()
-
     st.write("---")
+    st.caption("📸 사진 목록 (클릭해서 이동)")
 
-    st.caption("📸 파일 목록")
+    start = max(0, st.session_state.index - THUMB_RANGE)
+    end = min(total_images, st.session_state.index + THUMB_RANGE + 1)
+    visible = images[start:end]
 
-    start = max(
-        0,
-        st.session_state.index - THUMB_RANGE
-    )
-
-    end = min(
-        total_files,
-        st.session_state.index + THUMB_RANGE + 1
-    )
-
-    visible = files[start:end]
-
-    for i, file in enumerate(visible):
-
+    for i, img in enumerate(visible):
         actual_index = start + i
+        img_id = img["id"]
+        is_current = actual_index == st.session_state.index
+        border_color = "#FF4B4B" if is_current else "#ccc"
 
-        file_id = file["id"]
-
-        image_url = (
-            f"https://drive.google.com/thumbnail?id={file_id}&sz=w300"
+        st.markdown(
+            f'''<img src="https://drive.google.com/thumbnail?id={img_id}&sz=w200"
+            style="width:100%; border-radius:6px; border: 3px solid {border_color}; margin-bottom:2px;">
+            <p style="text-align:center; font-size:11px; margin:0 0 4px 0;">{actual_index + 1}번</p>''',
+            unsafe_allow_html=True
         )
-
-        st.image(
-            image_url,
-            use_container_width=True
-        )
-
         if st.button(
-            f"{actual_index + 1}번으로 이동",
-            key=f"move_{actual_index}",
-            use_container_width=True
+            f"{'👉 현재' if is_current else f'{actual_index + 1}번으로 이동'}",
+            key=f"thumb_{actual_index}",
+            use_container_width=True,
+            disabled=is_current
         ):
-
             st.session_state.index = actual_index
             st.rerun()
 
-# =========================================================
-# 현재 파일
-# =========================================================
+# ===== 메인 심사 화면 =====
+if st.session_state.index < total_images:
+    current_num = st.session_state.index + 1
+    current_file = images[st.session_state.index]
+    current_id = current_file["id"]
+    current_name = current_file["name"]
 
-current = files[
-    st.session_state.index
-]
-
-file_id = current["id"]
-file_name = current["name"]
-mime_type = current["mimeType"]
-
-st.subheader(
-    f"[{category}] "
-    f"{st.session_state.index + 1}"
-    f" / {total_files}"
-)
-
-# =========================================================
-# 메인 출력
-# =========================================================
-
-if "video" in mime_type:
-
-    video_url = (
-        f"https://drive.google.com/uc?id={file_id}"
-    )
-
-    st.video(video_url)
-
-else:
-
-    image_url = (
-        f"https://drive.google.com/thumbnail?id={file_id}&sz=w1600"
-    )
+    st.subheader(f"📊 [{category}] 심사 중: {current_num}번째 / 총 {total_images}장")
 
     st.markdown(
-        f'''
-        <div style="display:flex; justify-content:center;">
-            <img src="{image_url}"
-            style="
-                max-height:70vh;
-                max-width:100%;
-                border-radius:10px;
-                object-fit:contain;
-            ">
-        </div>
-        ''',
+        f'''<div style="display:flex; justify-content:center;">
+        <img src="https://drive.google.com/thumbnail?id={current_id}&sz=w1200"
+        style="max-height:60vh; max-width:100%; border-radius:8px; object-fit:contain;">
+        </div>''',
         unsafe_allow_html=True
     )
 
-st.write(file_name)
+    st.write("---")
 
-st.write("---")
+    col1, col2, col3 = st.columns(3)
 
-# =========================================================
-# 버튼
-# =========================================================
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-
-    if st.button(
-        "✅ 합격",
-        use_container_width=True
-    ):
-
-        save_result(
-            st.session_state.name,
-            file_id,
-            file_name,
-            "합격",
-            category
-        )
-
-        if st.session_state.index < total_files - 1:
+    with col1:
+        if st.button("✅ 합격", use_container_width=True):
+            save_result(st.session_state.name, current_name, "합격", category)
             st.session_state.index += 1
-
-        st.rerun()
-
-with col2:
-
-    if st.button(
-        "❌ 불합격",
-        use_container_width=True
-    ):
-
-        save_result(
-            st.session_state.name,
-            file_id,
-            file_name,
-            "불합격",
-            category
-        )
-
-        if st.session_state.index < total_files - 1:
-            st.session_state.index += 1
-
-        st.rerun()
-
-with col3:
-
-    if st.button(
-        "⬅️ 이전",
-        use_container_width=True
-    ):
-
-        if st.session_state.index > 0:
-
-            st.session_state.index -= 1
             st.rerun()
+
+    with col2:
+        if st.button("❌ 불합격", use_container_width=True):
+            save_result(st.session_state.name, current_name, "불합격", category)
+            st.session_state.index += 1
+            st.rerun()
+
+    with col3:
+        if st.button("⬅️ 이전으로", use_container_width=True):
+            if st.session_state.index > 0:
+                st.session_state.index -= 1
+                st.rerun()
+            else:
+                st.warning("첫 번째 이미지입니다!")
+
+else:
+    st.balloons()
+    st.success("🎉 모든 이미지를 심사했습니다! 수고하셨습니다.")
+    if st.button("🔄 처음부터 다시하기", use_container_width=True):
+        st.session_state.index = 0
+        st.rerun()
