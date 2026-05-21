@@ -5,8 +5,8 @@ from googleapiclient.discovery import build
 from datetime import datetime
 
 # ===== 설정 =====
-SPREADSHEET_ID = "https://docs.google.com/spreadsheets/d/1tLdbLIvTfpCS2HERHfeUBHGSL1dEKpPNGYk-9EJZvjU/edit"
-FOLDER_ID = "https://drive.google.com/drive/folders/1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd?usp=drive_link"  # ← 새로 추가!
+SPREADSHEET_ID = "1tLdbLIvTfpCS2HERHfeUBHGSL1dEKpPNGYk-9EJZvjU"
+FOLDER_ID = "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd?usp=drive_link"  # ← 새로 추가!
 
 # ===== 구글 연결 =====
 @st.cache_resource
