@@ -20,6 +20,17 @@ FOLDERS = {
 THUMB_RANGE = 5
 
 # =========================================================
+# 페이지 설정
+# =========================================================
+
+st.set_page_config(
+    page_title="사진/영상 심사 시스템",
+    layout="wide"
+)
+
+st.title("🚀 사진/영상 심사 시스템")
+
+# =========================================================
 # 구글 연결
 # =========================================================
 
@@ -64,7 +75,7 @@ def get_or_create_sheet(spreadsheet, title):
         )
 
 # =========================================================
-# 드라이브 파일 로드
+# 드라이브 파일 가져오기
 # =========================================================
 
 @st.cache_data(ttl=30)
@@ -87,7 +98,7 @@ def get_files_from_drive(folder_id, category):
     return results.get("files", [])
 
 # =========================================================
-# 저장
+# 결과 저장
 # =========================================================
 
 def save_result(
@@ -128,7 +139,7 @@ def save_result(
     update_summary(spreadsheet)
 
 # =========================================================
-# 집계
+# 집계 업데이트
 # =========================================================
 
 def update_summary(spreadsheet):
@@ -200,18 +211,7 @@ def update_summary(spreadsheet):
     )
 
 # =========================================================
-# 페이지
-# =========================================================
-
-st.set_page_config(
-    page_title="사진/영상 심사 시스템",
-    layout="wide"
-)
-
-st.title("🚀 사진/영상 심사 시스템")
-
-# =========================================================
-# 세션
+# 세션 상태
 # =========================================================
 
 if "name" not in st.session_state:
@@ -277,7 +277,7 @@ if not st.session_state.category:
     st.stop()
 
 # =========================================================
-# 파일 로드
+# 파일 불러오기
 # =========================================================
 
 category = st.session_state.category
@@ -348,7 +348,7 @@ with st.sidebar:
         )
 
         image_url = (
-            f"https://drive.google.com/thumbnail?id={file_id}&sz=w300"
+            f"https://drive.google.com/uc?export=view&id={file_id}"
         )
 
         st.image(
@@ -392,21 +392,32 @@ st.subheader(
 )
 
 # =========================================================
-# 이미지 / 영상 표시
+# 이미지 / 영상 출력
 # =========================================================
 
 if "video" in mime_type:
 
     video_url = (
-        f"https://drive.google.com/uc?id={file_id}"
+        f"https://drive.google.com/file/d/{file_id}/preview"
     )
 
-    st.video(video_url)
+    st.components.v1.html(
+        f"""
+        <iframe
+            src="{video_url}"
+            width="100%"
+            height="700"
+            allow="autoplay"
+            style="border:none;border-radius:10px;">
+        </iframe>
+        """,
+        height=700
+    )
 
 else:
 
     image_url = (
-        f"https://drive.google.com/thumbnail?id={file_id}&sz=w1600"
+        f"https://drive.google.com/uc?export=view&id={file_id}"
     )
 
     st.image(
@@ -477,7 +488,7 @@ with col3:
             st.rerun()
 
 # =========================================================
-# 완료
+# 마지막 파일
 # =========================================================
 
 if (
@@ -485,6 +496,4 @@ if (
     total_files - 1
 ):
 
-    st.success(
-        "마지막 파일입니다."
-    )
+    st.success("마지막 파일입니다.")
