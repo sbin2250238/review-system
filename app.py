@@ -8,7 +8,7 @@ SPREADSHEET_ID = "1tLdbLIvTfpCS2HERHfeUBHGSL1dEKpPNGYk-9EJZvjU"
 
 FOLDERS = {
     "사진": "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd",
-    "영상": "1baVZLTFNhL0AWuK4DpIbcJU7lU70wHtf"
+    "숏폼": "1baVZLTFNhL0AWuK4DpIbcJU7lU70wHtf"
 }
 
 THUMB_RANGE = 5
@@ -27,21 +27,13 @@ def get_services():
     sheet_client = gspread.authorize(creds)
     drive_client = build("drive", "v3", credentials=creds)
     spreadsheet = sheet_client.open_by_key(SPREADSHEET_ID)
-
-    sheets = {}
-    for category in FOLDERS:
-        try:
-            sheets[category] = spreadsheet.worksheet(category)
-        except:
-            sheets[category] = spreadsheet.add_worksheet(title=category, rows=1000, cols=50)
-
-        summary_title = f"{category}_집계"
-        try:
-            spreadsheet.worksheet(summary_title)
-        except:
-            spreadsheet.add_worksheet(title=summary_title, rows=1000, cols=10)
-
     return sheet_client, drive_client, spreadsheet
+
+def get_or_create_sheet(spreadsheet, title):
+    try:
+        return spreadsheet.worksheet(title)
+    except:
+        return spreadsheet.add_worksheet(title=title, rows=1000, cols=50)
 
 # ===== 드라이브 폴더에서 이미지 로드 =====
 @st.cache_data(ttl=60)
@@ -57,8 +49,8 @@ def get_images_from_drive(folder_id):
 # ===== 결과 저장 =====
 def save_result(judge_name, file_name, result, category):
     _, __, spreadsheet = get_services()
-    raw_sheet = spreadsheet.worksheet(category)
-    summary_sheet = spreadsheet.worksheet(f"{category}_집계")
+    raw_sheet = get_or_create_sheet(spreadsheet, category)
+    summary_sheet = get_or_create_sheet(spreadsheet, f"{category}_집계")
 
     data = raw_sheet.get_all_values()
     if not data:
@@ -105,12 +97,17 @@ def update_summary(raw_sheet, summary_sheet):
 
 # ===== 페이지 설정 =====
 st.set_page_config(page_title="이미지 심사 시스템", layout="wide")
-st.title("🚀 농-Life 사진·영상 20주년 특별공모전 예비심사 시스템")
+st.title("🚀 이미지 심사 시스템")
 
-# ===== 이름 입력 =====
+# ===== 세션 초기화 =====
 if 'name' not in st.session_state:
     st.session_state.name = ""
+if 'category' not in st.session_state:
+    st.session_state.category = ""
+if 'index' not in st.session_state:
+    st.session_state.index = 0
 
+# ===== 이름 입력 =====
 if not st.session_state.name:
     st.subheader("👤 심사위원 이름을 입력해주세요")
     name_input = st.text_input("이름", placeholder="예: 홍길동")
@@ -123,9 +120,6 @@ if not st.session_state.name:
     st.stop()
 
 # ===== 부문 선택 =====
-if 'category' not in st.session_state:
-    st.session_state.category = ""
-
 if not st.session_state.category:
     st.subheader("📂 심사할 부문을 선택해주세요")
     for cat in FOLDERS:
@@ -146,10 +140,7 @@ if not images:
 
 total_images = len(images)
 
-if 'index' not in st.session_state:
-    st.session_state.index = 0
-
-# ===== 사이드바 썸네일 (클릭으로 이동) =====
+# ===== 사이드바 썸네일 =====
 with st.sidebar:
     st.caption(f"심사위원: {st.session_state.name}")
     st.caption(f"부문: {category}")
@@ -170,23 +161,20 @@ with st.sidebar:
         is_current = actual_index == st.session_state.index
         border_color = "#FF4B4B" if is_current else "#ccc"
 
-        # 썸네일 클릭으로 이동 (버튼 없이)
         st.markdown(
-            f'''<a href="?jump={actual_index}" target="_self">
-            <img src="https://drive.google.com/thumbnail?id={img_id}&sz=w200"
-            style="width:100%; border-radius:6px; border: 3px solid {border_color}; margin-bottom:2px; cursor:pointer;">
-            </a>
-            <p style="text-align:center; font-size:11px; margin:0 0 8px 0;">{actual_index + 1}번</p>''',
+            f'''<img src="https://drive.google.com/thumbnail?id={img_id}&sz=w200"
+            style="width:100%; border-radius:6px; border: 3px solid {border_color}; margin-bottom:2px;">
+            <p style="text-align:center; font-size:11px; margin:0 0 4px 0;">{actual_index + 1}번</p>''',
             unsafe_allow_html=True
         )
-
-# URL 파라미터로 썸네일 클릭 이동 처리
-params = st.query_params
-if "jump" in params:
-    jump_index = int(params["jump"])
-    st.query_params.clear()
-    st.session_state.index = jump_index
-    st.rerun()
+        if st.button(
+            f"{'👉 현재' if is_current else f'{actual_index + 1}번으로 이동'}",
+            key=f"thumb_{actual_index}",
+            use_container_width=True,
+            disabled=is_current
+        ):
+            st.session_state.index = actual_index
+            st.rerun()
 
 # ===== 메인 심사 화면 =====
 if st.session_state.index < total_images:
@@ -197,7 +185,6 @@ if st.session_state.index < total_images:
 
     st.subheader(f"📊 [{category}] 심사 중: {current_num}번째 / 총 {total_images}장")
 
-    # 사진 크기 조절 (화면의 60% 높이로 제한)
     st.markdown(
         f'''<div style="display:flex; justify-content:center;">
         <img src="https://drive.google.com/thumbnail?id={current_id}&sz=w1200"
