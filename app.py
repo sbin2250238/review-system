@@ -53,12 +53,12 @@ def save_result(judge_name, file_name, result):
             data = raw_sheet.get_all_values()
 
             # 시트가 비어있거나 A1이 "파일명"이 아니면 초기화
-            if not data or data[0][0] != "파일명":
+            if not data or not data[0] or data[0][0] != "파일명":
                 raw_sheet.clear()
                 raw_sheet.update("A1", [["파일명", judge_name]])
                 data = [["파일명", judge_name]]
 
-            headers = data[0]  # ["파일명", "심사위원1", ...]
+            headers = data[0]
 
             # 심사위원 열 찾기
             if judge_name not in headers:
