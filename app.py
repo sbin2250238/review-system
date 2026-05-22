@@ -42,6 +42,31 @@ def get_files_from_drive():
     ).execute()
     return results.get("files", [])
 
+# ===== 내 심사 결과 불러오기 =====
+def get_my_results(judge_name):
+    _, __, spreadsheet = get_services()
+    raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
+    data = raw_sheet.get_all_values()
+
+    results = {}
+    if not data or not data[0] or data[0][0] != "파일명":
+        return results
+
+    headers = data[0]
+    if judge_name not in headers:
+        return results
+
+    col_index = headers.index(judge_name)
+    for row in data[1:]:
+        if not row or not row[0]:
+            continue
+        file_name = row[0]
+        value = row[col_index] if col_index < len(row) else ""
+        if value in ["합격", "불합격"]:
+            results[file_name] = value
+
+    return results
+
 # ===== 결과 저장 =====
 def save_result(judge_name, file_name, result):
     _, __, spreadsheet = get_services()
@@ -52,7 +77,6 @@ def save_result(judge_name, file_name, result):
         try:
             data = raw_sheet.get_all_values()
 
-            # 시트가 비어있거나 A1이 "파일명"이 아니면 초기화
             if not data or not data[0] or data[0][0] != "파일명":
                 raw_sheet.clear()
                 raw_sheet.update("A1", [["파일명", judge_name]])
@@ -60,7 +84,6 @@ def save_result(judge_name, file_name, result):
 
             headers = data[0]
 
-            # 심사위원 열 찾기
             if judge_name not in headers:
                 col_index = len(headers) + 1
                 raw_sheet.update_cell(1, col_index, judge_name)
@@ -68,7 +91,6 @@ def save_result(judge_name, file_name, result):
             else:
                 col_index = headers.index(judge_name) + 1
 
-            # 파일명 행 찾기 (2행부터)
             file_col = [row[0] if row else "" for row in data[1:]]
             if file_name not in file_col:
                 row_index = len(data) + 1
@@ -76,7 +98,6 @@ def save_result(judge_name, file_name, result):
             else:
                 row_index = file_col.index(file_name) + 2
 
-            # 결과 저장
             raw_sheet.update_cell(row_index, col_index, result)
             update_summary(raw_sheet, summary_sheet)
             break
@@ -138,11 +159,17 @@ if not files:
 
 total_files = len(files)
 
+# ===== 내 심사 결과 불러오기 =====
+my_results = get_my_results(st.session_state.name)
+done_count = len(my_results)
+all_done = done_count >= total_files
+
 # ===== 사이드바 썸네일 =====
 with st.sidebar:
     st.caption(f"심사위원: {st.session_state.name}")
+    st.progress(done_count / total_files, text=f"진행률: {done_count} / {total_files}장")
     st.write("---")
-    st.caption("📋 목록 (버튼 클릭해서 이동)")
+    st.caption("📋 목록 (클릭해서 이동)")
 
     start = max(0, st.session_state.index - THUMB_RANGE)
     end = min(total_files, st.session_state.index + THUMB_RANGE + 1)
@@ -151,13 +178,18 @@ with st.sidebar:
     for i, f in enumerate(visible):
         actual_index = start + i
         file_id = f["id"]
+        file_name = f["name"]
         is_current = actual_index == st.session_state.index
-        border_color = "#FF4B4B" if is_current else "#ccc"
+        my_vote = my_results.get(file_name, "")
+
+        border_color = "#FF4B4B" if is_current else ("#4CAF50" if my_vote == "합격" else "#f44336" if my_vote == "불합격" else "#ccc")
+
+        vote_label = "✅" if my_vote == "합격" else "❌" if my_vote == "불합격" else "⬜"
 
         st.markdown(
             f'''<img src="https://drive.google.com/thumbnail?id={file_id}&sz=w200"
             style="width:100%; border-radius:6px; border: 3px solid {border_color}; margin-bottom:2px;">
-            <p style="text-align:center; font-size:11px; margin:0 0 4px 0;">{actual_index + 1}번</p>''',
+            <p style="text-align:center; font-size:11px; margin:0 0 4px 0;">{vote_label} {actual_index + 1}번</p>''',
             unsafe_allow_html=True
         )
         if not is_current:
@@ -167,14 +199,28 @@ with st.sidebar:
         else:
             st.button("👉 현재", key=f"thumb_{actual_index}", use_container_width=True, disabled=True)
 
+# ===== 완료 화면 =====
+if all_done:
+    st.balloons()
+    st.success("🎉 모든 사진 심사를 완료했습니다! 수고하셨습니다.")
+    st.info(f"✅ 합격: {list(my_results.values()).count('합격')}장 / ❌ 불합격: {list(my_results.values()).count('불합격')}장")
+    if st.button("🔄 다시 검토하기", use_container_width=True):
+        st.session_state.index = 0
+        st.rerun()
+    st.stop()
+
 # ===== 메인 심사 화면 =====
 if st.session_state.index < total_files:
     current_num = st.session_state.index + 1
     current_file = files[st.session_state.index]
     current_id = current_file["id"]
     current_name = current_file["name"]
+    my_vote = my_results.get(current_name, "")
 
     st.subheader(f"📊 심사 중: {current_num}번째 / 총 {total_files}개")
+
+    if my_vote:
+        st.info(f"현재 선택: {'✅ 합격' if my_vote == '합격' else '❌ 불합격'} (변경 가능)")
 
     st.markdown(
         f'''<div style="display:flex; justify-content:center;">
@@ -191,12 +237,14 @@ if st.session_state.index < total_files:
     with col1:
         if st.button("✅ 합격", use_container_width=True):
             save_result(st.session_state.name, current_name, "합격")
+            my_results[current_name] = "합격"
             st.session_state.index += 1
             st.rerun()
 
     with col2:
         if st.button("❌ 불합격", use_container_width=True):
             save_result(st.session_state.name, current_name, "불합격")
+            my_results[current_name] = "불합격"
             st.session_state.index += 1
             st.rerun()
 
@@ -207,10 +255,9 @@ if st.session_state.index < total_files:
                 st.rerun()
             else:
                 st.warning("첫 번째입니다!")
-
 else:
-    st.balloons()
-    st.success("🎉 모든 사진을 심사했습니다! 수고하셨습니다.")
-    if st.button("🔄 처음부터 다시하기", use_container_width=True):
-        st.session_state.index = 0
+    # 마지막 사진 이후 인덱스 → 첫번째 미완료 사진으로 이동
+    undone = [i for i, f in enumerate(files) if f["name"] not in my_results]
+    if undone:
+        st.session_state.index = undone[0]
         st.rerun()
