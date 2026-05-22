@@ -2,17 +2,11 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-import requests
-from google.auth.transport.requests import Request
 
 # ===== 설정 =====
 SPREADSHEET_ID = "1tLdbLIvTfpCS2HERHfeUBHGSL1dEKpPNGYk-9EJZvjU"
-
-FOLDERS = {
-    "사진": "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd",
-    "숏폼": "1baVZLTFNhL0AWuK4DpIbcJU7lU70wHtf"
-}
-
+FOLDER_ID = "1XNE_HmkcHQhxSusMfwzkXh80dPVFiQJd"
+SHEET_NAME = "사진"
 THUMB_RANGE = 5
 
 # ===== 구글 연결 =====
@@ -20,7 +14,7 @@ THUMB_RANGE = 5
 def get_services():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
+        "https://www.googleapis.com/auth/drive.readonly"
     ]
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
@@ -29,7 +23,7 @@ def get_services():
     sheet_client = gspread.authorize(creds)
     drive_client = build("drive", "v3", credentials=creds)
     spreadsheet = sheet_client.open_by_key(SPREADSHEET_ID)
-    return creds, sheet_client, drive_client, spreadsheet
+    return sheet_client, drive_client, spreadsheet
 
 def get_or_create_sheet(spreadsheet, title):
     try:
@@ -37,60 +31,54 @@ def get_or_create_sheet(spreadsheet, title):
     except:
         return spreadsheet.add_worksheet(title=title, rows=1000, cols=50)
 
-# ===== 파일 바이트 직접 다운로드 =====
-def download_file(file_id):
-    creds, _, __, ___ = get_services()
-    if not creds.valid:
-        creds.refresh(Request())
-    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-    headers = {"Authorization": f"Bearer {creds.token}"}
-    response = requests.get(url, headers=headers)
-    return response.content
-
 # ===== 드라이브 폴더에서 파일 로드 =====
 @st.cache_data(ttl=60)
-def get_files_from_drive(folder_id, category):
-    _, __, drive_client, ___ = get_services()
-    if category == "숏폼":
-        mime_filter = "mimeType contains 'video/'"
-    else:
-        mime_filter = "mimeType contains 'image/'"
+def get_files_from_drive():
+    _, drive_client, __ = get_services()
     results = drive_client.files().list(
-        q=f"'{folder_id}' in parents and {mime_filter} and trashed=false",
-        fields="files(id, name, mimeType)",
+        q=f"'{FOLDER_ID}' in parents and mimeType contains 'image/' and trashed=false",
+        fields="files(id, name)",
         orderBy="name"
     ).execute()
     return results.get("files", [])
 
 # ===== 결과 저장 =====
-def save_result(judge_name, file_name, result, category):
-    _, __, ___, spreadsheet = get_services()
-    raw_sheet = get_or_create_sheet(spreadsheet, category)
-    summary_sheet = get_or_create_sheet(spreadsheet, f"{category}_집계")
+def save_result(judge_name, file_name, result):
+    _, __, spreadsheet = get_services()
+    raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
+    summary_sheet = get_or_create_sheet(spreadsheet, f"{SHEET_NAME}_집계")
 
-    data = raw_sheet.get_all_values()
-    if not data:
-        raw_sheet.append_row(["파일명"])
-        data = [["파일명"]]
+    for attempt in range(3):
+        try:
+            data = raw_sheet.get_all_values()
 
-    headers = data[0]
+            if not data:
+                raw_sheet.append_row(["파일명"])
+                data = [["파일명"]]
 
-    if judge_name not in headers:
-        headers.append(judge_name)
-        col_index = len(headers)
-        raw_sheet.update_cell(1, col_index, judge_name)
-    else:
-        col_index = headers.index(judge_name) + 1
+            headers = data[0]
 
-    file_names = [row[0] for row in data[1:]] if len(data) > 1 else []
-    if file_name not in file_names:
-        row_index = len(data) + 1
-        raw_sheet.update_cell(row_index, 1, file_name)
-    else:
-        row_index = file_names.index(file_name) + 2
+            if judge_name not in headers:
+                col_index = len(headers) + 1
+                raw_sheet.update_cell(1, col_index, judge_name)
+                headers.append(judge_name)
+            else:
+                col_index = headers.index(judge_name) + 1
 
-    raw_sheet.update_cell(row_index, col_index, result)
-    update_summary(raw_sheet, summary_sheet)
+            file_names = [row[0] for row in data[1:]] if len(data) > 1 else []
+            if file_name not in file_names:
+                row_index = len(data) + 1
+                raw_sheet.update_cell(row_index, 1, file_name)
+            else:
+                row_index = file_names.index(file_name) + 2
+
+            raw_sheet.update_cell(row_index, col_index, result)
+            update_summary(raw_sheet, summary_sheet)
+            break
+
+        except gspread.exceptions.APIError:
+            if attempt == 2:
+                st.error("저장 중 오류가 발생했습니다. 다시 시도해주세요.")
 
 # ===== 집계 업데이트 =====
 def update_summary(raw_sheet, summary_sheet):
@@ -101,6 +89,7 @@ def update_summary(raw_sheet, summary_sheet):
     summary_sheet.clear()
     summary_sheet.append_row(["파일명", "합격수", "불합격수", "총심사수"])
 
+    rows_to_add = []
     for row in data[1:]:
         if not row[0]:
             continue
@@ -109,14 +98,17 @@ def update_summary(raw_sheet, summary_sheet):
         pass_count = votes.count("합격")
         fail_count = votes.count("불합격")
         total = pass_count + fail_count
-        summary_sheet.append_row([file_name, pass_count, fail_count, total])
+        rows_to_add.append([file_name, pass_count, fail_count, total])
+
+    if rows_to_add:
+        summary_sheet.append_rows(rows_to_add)
 
 # ===== 페이지 설정 =====
-st.set_page_config(page_title="심사 시스템", layout="wide")
-st.title("🚀 심사 시스템")
+st.set_page_config(page_title="사진 심사 시스템", layout="wide")
+st.title("🖼️ 사진 심사 시스템")
 
 # ===== 세션 초기화 =====
-for key, val in [('name', ''), ('category', ''), ('index', 0)]:
+for key, val in [('name', ''), ('index', 0)]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -124,7 +116,7 @@ for key, val in [('name', ''), ('category', ''), ('index', 0)]:
 if not st.session_state.name:
     st.subheader("👤 심사위원 이름을 입력해주세요")
     name_input = st.text_input("이름", placeholder="예: 홍길동")
-    if st.button("다음", use_container_width=True):
+    if st.button("심사 시작", use_container_width=True):
         if name_input.strip():
             st.session_state.name = name_input.strip()
             st.rerun()
@@ -132,41 +124,18 @@ if not st.session_state.name:
             st.warning("이름을 입력해주세요!")
     st.stop()
 
-# ===== 부문 선택 =====
-if not st.session_state.category:
-    st.subheader("📂 심사할 부문을 선택해주세요")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🖼️ 사진 부문", use_container_width=True):
-            st.session_state.category = "사진"
-            st.session_state.index = 0
-            st.rerun()
-    with col2:
-        if st.button("🎬 숏폼 부문", use_container_width=True):
-            st.session_state.category = "숏폼"
-            st.session_state.index = 0
-            st.rerun()
-    st.stop()
-
 # ===== 파일 불러오기 =====
-category = st.session_state.category
-folder_id = FOLDERS[category]
-files = get_files_from_drive(folder_id, category)
+files = get_files_from_drive()
 
 if not files:
-    st.error("📁 드라이브 폴더에 파일이 없거나 폴더 ID가 잘못되었습니다.")
+    st.error("📁 드라이브 폴더에 이미지가 없거나 폴더 ID가 잘못되었습니다.")
     st.stop()
 
 total_files = len(files)
 
-# ===== 사이드바 =====
+# ===== 사이드바 썸네일 =====
 with st.sidebar:
     st.caption(f"심사위원: {st.session_state.name}")
-    st.caption(f"부문: {category}")
-    if st.button("🔀 부문 변경", use_container_width=True):
-        st.session_state.category = ""
-        st.session_state.index = 0
-        st.rerun()
     st.write("---")
     st.caption("📋 목록 (버튼 클릭해서 이동)")
 
@@ -177,29 +146,15 @@ with st.sidebar:
     for i, f in enumerate(visible):
         actual_index = start + i
         file_id = f["id"]
-        file_name = f["name"]
         is_current = actual_index == st.session_state.index
         border_color = "#FF4B4B" if is_current else "#ccc"
 
-        if category == "사진":
-            try:
-                img_bytes = download_file(file_id)
-                st.markdown(f'<div style="border: 3px solid {border_color}; border-radius:6px; margin-bottom:4px; overflow:hidden;">', unsafe_allow_html=True)
-                st.image(img_bytes, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-                st.caption(f"{actual_index + 1}번")
-            except:
-                st.caption(f"{actual_index + 1}번 (로드 실패)")
-        else:
-            icon = "👉" if is_current else "▶️"
-            st.markdown(
-                f'''<div style="width:100%; padding:8px; border-radius:6px;
-                border: 3px solid {border_color}; margin-bottom:4px; text-align:center; font-size:12px;">
-                {icon} {actual_index + 1}번<br>
-                <span style="font-size:10px;">{file_name[:20]}</span></div>''',
-                unsafe_allow_html=True
-            )
-
+        st.markdown(
+            f'''<img src="https://drive.google.com/thumbnail?id={file_id}&sz=w200"
+            style="width:100%; border-radius:6px; border: 3px solid {border_color}; margin-bottom:2px;">
+            <p style="text-align:center; font-size:11px; margin:0 0 4px 0;">{actual_index + 1}번</p>''',
+            unsafe_allow_html=True
+        )
         if not is_current:
             if st.button(f"{actual_index + 1}번으로 이동", key=f"thumb_{actual_index}", use_container_width=True):
                 st.session_state.index = actual_index
@@ -213,22 +168,16 @@ if st.session_state.index < total_files:
     current_file = files[st.session_state.index]
     current_id = current_file["id"]
     current_name = current_file["name"]
-    current_mime = current_file["mimeType"]
 
-    st.subheader(f"📊 [{category}] 심사 중: {current_num}번째 / 총 {total_files}개")
+    st.subheader(f"📊 심사 중: {current_num}번째 / 총 {total_files}개")
 
-    if category == "사진":
-        try:
-            img_bytes = download_file(current_id)
-            st.image(img_bytes, use_container_width=False, width=800)
-        except Exception as e:
-            st.error(f"이미지 로드 실패: {e}")
-    else:
-        try:
-            video_bytes = download_file(current_id)
-            st.video(video_bytes)
-        except Exception as e:
-            st.error(f"영상 로드 실패: {e}")
+    st.markdown(
+        f'''<div style="display:flex; justify-content:center;">
+        <img src="https://drive.google.com/thumbnail?id={current_id}&sz=w1200"
+        style="max-height:60vh; max-width:100%; border-radius:8px; object-fit:contain;">
+        </div>''',
+        unsafe_allow_html=True
+    )
 
     st.write("---")
 
@@ -236,13 +185,13 @@ if st.session_state.index < total_files:
 
     with col1:
         if st.button("✅ 합격", use_container_width=True):
-            save_result(st.session_state.name, current_name, "합격", category)
+            save_result(st.session_state.name, current_name, "합격")
             st.session_state.index += 1
             st.rerun()
 
     with col2:
         if st.button("❌ 불합격", use_container_width=True):
-            save_result(st.session_state.name, current_name, "불합격", category)
+            save_result(st.session_state.name, current_name, "불합격")
             st.session_state.index += 1
             st.rerun()
 
@@ -256,7 +205,7 @@ if st.session_state.index < total_files:
 
 else:
     st.balloons()
-    st.success("🎉 모든 파일을 심사했습니다! 수고하셨습니다.")
+    st.success("🎉 모든 사진을 심사했습니다! 수고하셨습니다.")
     if st.button("🔄 처음부터 다시하기", use_container_width=True):
         st.session_state.index = 0
         st.rerun()
