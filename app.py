@@ -52,26 +52,30 @@ def save_result(judge_name, file_name, result):
         try:
             data = raw_sheet.get_all_values()
 
+            # 시트가 비어있으면 헤더 생성
             if not data:
-                raw_sheet.append_row(["파일명"])
+                raw_sheet.update("A1", [["파일명"]])
                 data = [["파일명"]]
 
-            headers = data[0]
+            headers = data[0]  # 1행: ["파일명", "심사위원1", ...]
 
+            # 심사위원 열 찾기
             if judge_name not in headers:
                 col_index = len(headers) + 1
                 raw_sheet.update_cell(1, col_index, judge_name)
-                headers.append(judge_name)
+                headers = headers + [judge_name]
             else:
                 col_index = headers.index(judge_name) + 1
 
-            file_names = [row[0] for row in data[1:]] if len(data) > 1 else []
-            if file_name not in file_names:
+            # 파일명 행 찾기 (2행부터)
+            file_col = [row[0] if row else "" for row in data[1:]]
+            if file_name not in file_col:
                 row_index = len(data) + 1
                 raw_sheet.update_cell(row_index, 1, file_name)
             else:
-                row_index = file_names.index(file_name) + 2
+                row_index = file_col.index(file_name) + 2  # +2: 헤더행 + 0-index 보정
 
+            # 결과 저장
             raw_sheet.update_cell(row_index, col_index, result)
             update_summary(raw_sheet, summary_sheet)
             break
@@ -87,13 +91,14 @@ def update_summary(raw_sheet, summary_sheet):
         return
 
     summary_sheet.clear()
-    summary_sheet.append_row(["파일명", "합격수", "불합격수", "총심사수"])
+    summary_sheet.update("A1", [["파일명", "합격수", "불합격수", "총심사수"]])
 
     rows_to_add = []
     for row in data[1:]:
-        if not row[0]:
+        if not row or not row[0]:
             continue
         file_name = row[0]
+        # 파일명 열 제외하고 합/불 카운트
         votes = [v for v in row[1:] if v in ["합격", "불합격"]]
         pass_count = votes.count("합격")
         fail_count = votes.count("불합격")
