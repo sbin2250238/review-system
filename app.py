@@ -28,17 +28,15 @@ def get_services():
 def get_or_create_sheet(spreadsheet, title):
     try:
         return spreadsheet.worksheet(title)
-    except:
+    except gspread.exceptions.WorksheetNotFound:
         return spreadsheet.add_worksheet(title=title, rows=1000, cols=50)
 
-# ===== 드라이브 폴더에서 파일 로드 (1000개 이상 지원) =====
+# ===== 드라이브 폴더에서 파일 로드 =====
 @st.cache_data(ttl=60)
 def get_files_from_drive():
     _, drive_client, __ = get_services()
-
     all_files = []
     page_token = None
-
     while True:
         params = {
             "q": f"'{FOLDER_ID}' in parents and mimeType contains 'image/' and trashed=false",
@@ -48,22 +46,23 @@ def get_files_from_drive():
         }
         if page_token:
             params["pageToken"] = page_token
-
         results = drive_client.files().list(**params).execute()
         all_files.extend(results.get("files", []))
-
         page_token = results.get("nextPageToken")
         if not page_token:
             break
-
     return all_files
 
-# ===== 내 심사 결과 불러오기 =====
+# ===== 내 심사 결과 불러오기 (캐시 추가) =====
+@st.cache_data(ttl=30)
 def get_my_results(judge_name):
     _, __, spreadsheet = get_services()
-    raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
-    data = raw_sheet.get_all_values()
+    try:
+        raw_sheet = spreadsheet.worksheet(SHEET_NAME)
+    except:
+        return {}
 
+    data = raw_sheet.get_all_values()
     results = {}
     if not data or not data[0] or data[0][0] != "파일명":
         return results
@@ -116,6 +115,9 @@ def save_result(judge_name, file_name, result):
 
             raw_sheet.update_cell(row_index, col_index, result)
             update_summary(raw_sheet, summary_sheet)
+
+            # 저장 후 캐시 초기화
+            get_my_results.clear()
             break
 
         except gspread.exceptions.APIError:
