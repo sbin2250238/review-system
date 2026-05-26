@@ -53,21 +53,25 @@ def get_files_from_drive():
             break
     return all_files
 
-# ===== 시트 파일명 자동 초기화 =====
+# ===== 시트 파일명 자동 초기화 (세션당 1회만) =====
 def init_sheet_if_needed(files):
+    if st.session_state.get('sheet_initialized'):
+        return
+
     _, __, spreadsheet = get_services()
     raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
     data = raw_sheet.get_all_values()
 
-    # 파일명이 이미 시트에 있으면 패스
     if data and data[0] and data[0][0] == "파일명" and len(data) > 1:
+        st.session_state.sheet_initialized = True
         return
 
-    # 없으면 파일명 전체 한번에 입력
     with st.spinner("⏳ 심사 목록 초기화 중... 잠시만 기다려주세요."):
         raw_sheet.clear()
         rows = [["파일명"]] + [[f["name"]] for f in files]
         raw_sheet.update("A1", rows)
+
+    st.session_state.sheet_initialized = True
 
 # ===== 내 심사 결과 불러오기 =====
 @st.cache_data(ttl=30)
@@ -108,17 +112,13 @@ def save_result(judge_name, file_name, result, file_index):
             data = raw_sheet.get_all_values()
             headers = data[0] if data else ["파일명"]
 
-            # 심사위원 열 찾기
             if judge_name not in headers:
                 col_index = len(headers) + 1
                 raw_sheet.update_cell(1, col_index, judge_name)
             else:
                 col_index = headers.index(judge_name) + 1
 
-            # 파일명 인덱스로 행 번호 바로 계산 (시트 전체 안 읽어도 됨)
-            row_index = file_index + 2  # +1 헤더, +1 0-index 보정
-
-            # 결과만 저장 ⚡
+            row_index = file_index + 2
             raw_sheet.update_cell(row_index, col_index, result)
             get_my_results.clear()
             break
@@ -159,7 +159,7 @@ st.set_page_config(page_title="사진 심사 시스템", layout="wide")
 st.title("🖼️ 사진 심사 시스템")
 
 # ===== 세션 초기화 =====
-for key, val in [('name', ''), ('index', 0), ('summary_updated', False)]:
+for key, val in [('name', ''), ('index', 0), ('summary_updated', False), ('sheet_initialized', False)]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -270,7 +270,6 @@ if st.session_state.index < total_files:
     my_vote = my_results.get(current_name, "")
 
     st.subheader(f"📊 심사 중: {current_num}번째 / 총 {total_files}개")
-    st.write(f"현재 파일 ID: {current_id}")
 
     if my_vote:
         st.info(f"현재 선택: {'✅ 합격' if my_vote == '합격' else '❌ 불합격'} (변경 가능)")
