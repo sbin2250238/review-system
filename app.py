@@ -53,6 +53,22 @@ def get_files_from_drive():
             break
     return all_files
 
+# ===== 시트 파일명 자동 초기화 =====
+def init_sheet_if_needed(files):
+    _, __, spreadsheet = get_services()
+    raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
+    data = raw_sheet.get_all_values()
+
+    # 파일명이 이미 시트에 있으면 패스
+    if data and data[0] and data[0][0] == "파일명" and len(data) > 1:
+        return
+
+    # 없으면 파일명 전체 한번에 입력
+    with st.spinner("⏳ 심사 목록 초기화 중... 잠시만 기다려주세요."):
+        raw_sheet.clear()
+        rows = [["파일명"]] + [[f["name"]] for f in files]
+        raw_sheet.update("A1", rows)
+
 # ===== 내 심사 결과 불러오기 =====
 @st.cache_data(ttl=30)
 def get_my_results(judge_name):
@@ -82,37 +98,27 @@ def get_my_results(judge_name):
 
     return results
 
-# ===== 결과 저장 (집계 제외, 빠른 버전) =====
-def save_result(judge_name, file_name, result):
+# ===== 결과 저장 (빠른 버전) =====
+def save_result(judge_name, file_name, result, file_index):
     _, __, spreadsheet = get_services()
     raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
 
     for attempt in range(3):
         try:
             data = raw_sheet.get_all_values()
+            headers = data[0] if data else ["파일명"]
 
-            if not data or not data[0] or data[0][0] != "파일명":
-                raw_sheet.clear()
-                raw_sheet.update("A1", [["파일명", judge_name]])
-                data = [["파일명", judge_name]]
-
-            headers = data[0]
-
+            # 심사위원 열 찾기
             if judge_name not in headers:
                 col_index = len(headers) + 1
                 raw_sheet.update_cell(1, col_index, judge_name)
-                headers = headers + [judge_name]
             else:
                 col_index = headers.index(judge_name) + 1
 
-            file_col = [row[0] if row else "" for row in data[1:]]
-            if file_name not in file_col:
-                row_index = len(data) + 1
-                raw_sheet.update_cell(row_index, 1, file_name)
-            else:
-                row_index = file_col.index(file_name) + 2
+            # 파일명 인덱스로 행 번호 바로 계산 (시트 전체 안 읽어도 됨)
+            row_index = file_index + 2  # +1 헤더, +1 0-index 보정
 
-            # 셀 하나만 저장 (집계 없음 → 빠름 ⚡)
+            # 결과만 저장 ⚡
             raw_sheet.update_cell(row_index, col_index, result)
             get_my_results.clear()
             break
@@ -121,7 +127,7 @@ def save_result(judge_name, file_name, result):
             if attempt == 2:
                 st.error("저장 중 오류가 발생했습니다. 다시 시도해주세요.")
 
-# ===== 집계 업데이트 (완료시에만 호출) =====
+# ===== 집계 업데이트 (완료시에만) =====
 def update_summary():
     _, __, spreadsheet = get_services()
     raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
@@ -178,6 +184,9 @@ if not files:
 
 total_files = len(files)
 
+# ===== 시트 자동 초기화 =====
+init_sheet_if_needed(files)
+
 # ===== 내 심사 결과 불러오기 =====
 my_results = get_my_results(st.session_state.name)
 done_count = len(my_results)
@@ -195,7 +204,6 @@ with st.sidebar:
     st.progress(done_count / total_files, text=f"진행률: {done_count} / {total_files}장")
     st.write("---")
 
-    # 번호 직접 입력 이동
     st.caption("🔢 번호로 바로 이동")
     col_a, col_b = st.columns([3, 1])
     with col_a:
@@ -280,14 +288,14 @@ if st.session_state.index < total_files:
 
     with col1:
         if st.button("✅ 합격", use_container_width=True):
-            save_result(st.session_state.name, current_name, "합격")
+            save_result(st.session_state.name, current_name, "합격", st.session_state.index)
             my_results[current_name] = "합격"
             st.session_state.index += 1
             st.rerun()
 
     with col2:
         if st.button("❌ 불합격", use_container_width=True):
-            save_result(st.session_state.name, current_name, "불합격")
+            save_result(st.session_state.name, current_name, "불합격", st.session_state.index)
             my_results[current_name] = "불합격"
             st.session_state.index += 1
             st.rerun()
