@@ -270,6 +270,7 @@ if st.session_state.index < total_files:
     my_vote = my_results.get(current_name, "")
 
     st.subheader(f"📊 심사 중: {current_num}번째 / 총 {total_files}개")
+st.write(f"현재 파일 ID: {current_id}")
 
     if my_vote:
         st.info(f"현재 선택: {'✅ 합격' if my_vote == '합격' else '❌ 불합격'} (변경 가능)")
