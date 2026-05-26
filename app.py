@@ -29,7 +29,7 @@ def get_or_create_sheet(spreadsheet, title):
     try:
         return spreadsheet.worksheet(title)
     except gspread.exceptions.WorksheetNotFound:
-        return spreadsheet.add_worksheet(title=title, rows=1000, cols=50)
+        return spreadsheet.add_worksheet(title=title, rows=2000, cols=50)
 
 # ===== 드라이브 폴더에서 파일 로드 =====
 @st.cache_data(ttl=60)
@@ -53,7 +53,7 @@ def get_files_from_drive():
             break
     return all_files
 
-# ===== 내 심사 결과 불러오기 (캐시 추가) =====
+# ===== 내 심사 결과 불러오기 =====
 @st.cache_data(ttl=30)
 def get_my_results(judge_name):
     _, __, spreadsheet = get_services()
@@ -82,11 +82,10 @@ def get_my_results(judge_name):
 
     return results
 
-# ===== 결과 저장 =====
+# ===== 결과 저장 (집계 제외, 빠른 버전) =====
 def save_result(judge_name, file_name, result):
     _, __, spreadsheet = get_services()
     raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
-    summary_sheet = get_or_create_sheet(spreadsheet, f"{SHEET_NAME}_집계")
 
     for attempt in range(3):
         try:
@@ -113,10 +112,8 @@ def save_result(judge_name, file_name, result):
             else:
                 row_index = file_col.index(file_name) + 2
 
+            # 셀 하나만 저장 (집계 없음 → 빠름 ⚡)
             raw_sheet.update_cell(row_index, col_index, result)
-            update_summary(raw_sheet, summary_sheet)
-
-            # 저장 후 캐시 초기화
             get_my_results.clear()
             break
 
@@ -124,8 +121,12 @@ def save_result(judge_name, file_name, result):
             if attempt == 2:
                 st.error("저장 중 오류가 발생했습니다. 다시 시도해주세요.")
 
-# ===== 집계 업데이트 =====
-def update_summary(raw_sheet, summary_sheet):
+# ===== 집계 업데이트 (완료시에만 호출) =====
+def update_summary():
+    _, __, spreadsheet = get_services()
+    raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
+    summary_sheet = get_or_create_sheet(spreadsheet, f"{SHEET_NAME}_집계")
+
     data = raw_sheet.get_all_values()
     if not data or len(data) < 2:
         return
@@ -152,7 +153,7 @@ st.set_page_config(page_title="사진 심사 시스템", layout="wide")
 st.title("🖼️ 사진 심사 시스템")
 
 # ===== 세션 초기화 =====
-for key, val in [('name', ''), ('index', 0)]:
+for key, val in [('name', ''), ('index', 0), ('summary_updated', False)]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -181,6 +182,12 @@ total_files = len(files)
 my_results = get_my_results(st.session_state.name)
 done_count = len(my_results)
 all_done = done_count >= total_files
+
+# ===== 완료시 집계 업데이트 (한번만) =====
+if all_done and not st.session_state.summary_updated:
+    with st.spinner("집계 중..."):
+        update_summary()
+    st.session_state.summary_updated = True
 
 # ===== 사이드바 =====
 with st.sidebar:
@@ -241,6 +248,7 @@ if all_done:
     st.success("🎉 모든 사진 심사를 완료했습니다! 수고하셨습니다.")
     st.info(f"✅ 합격: {list(my_results.values()).count('합격')}장 / ❌ 불합격: {list(my_results.values()).count('불합격')}장")
     if st.button("🔄 다시 검토하기", use_container_width=True):
+        st.session_state.summary_updated = False
         st.session_state.index = 0
         st.rerun()
     st.stop()
