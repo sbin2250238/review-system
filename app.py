@@ -31,16 +31,32 @@ def get_or_create_sheet(spreadsheet, title):
     except:
         return spreadsheet.add_worksheet(title=title, rows=1000, cols=50)
 
-# ===== 드라이브 폴더에서 파일 로드 =====
+# ===== 드라이브 폴더에서 파일 로드 (1000개 이상 지원) =====
 @st.cache_data(ttl=60)
 def get_files_from_drive():
     _, drive_client, __ = get_services()
-    results = drive_client.files().list(
-        q=f"'{FOLDER_ID}' in parents and mimeType contains 'image/' and trashed=false",
-        fields="files(id, name)",
-        orderBy="name"
-    ).execute()
-    return results.get("files", [])
+
+    all_files = []
+    page_token = None
+
+    while True:
+        params = {
+            "q": f"'{FOLDER_ID}' in parents and mimeType contains 'image/' and trashed=false",
+            "fields": "nextPageToken, files(id, name)",
+            "orderBy": "name",
+            "pageSize": 1000
+        }
+        if page_token:
+            params["pageToken"] = page_token
+
+        results = drive_client.files().list(**params).execute()
+        all_files.extend(results.get("files", []))
+
+        page_token = results.get("nextPageToken")
+        if not page_token:
+            break
+
+    return all_files
 
 # ===== 내 심사 결과 불러오기 =====
 def get_my_results(judge_name):
@@ -183,7 +199,6 @@ with st.sidebar:
         my_vote = my_results.get(file_name, "")
 
         border_color = "#FF4B4B" if is_current else ("#4CAF50" if my_vote == "합격" else "#f44336" if my_vote == "불합격" else "#ccc")
-
         vote_label = "✅" if my_vote == "합격" else "❌" if my_vote == "불합격" else "⬜"
 
         st.markdown(
@@ -256,7 +271,6 @@ if st.session_state.index < total_files:
             else:
                 st.warning("첫 번째입니다!")
 else:
-    # 마지막 사진 이후 인덱스 → 첫번째 미완료 사진으로 이동
     undone = [i for i, f in enumerate(files) if f["name"] not in my_results]
     if undone:
         st.session_state.index = undone[0]
