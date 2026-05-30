@@ -53,7 +53,7 @@ def get_files_from_drive():
             break
     return all_files
 
-# ===== 시트 파일명 자동 초기화 (세션당 1회만) =====
+# ===== 시트 파일명 자동 초기화 =====
 def init_sheet_if_needed(files):
     if st.session_state.get('sheet_initialized'):
         return
@@ -75,7 +75,7 @@ def init_sheet_if_needed(files):
 
 # ===== 내 심사 결과 불러오기 =====
 @st.cache_data(ttl=30)
-def get_my_results(judge_name):
+def fetch_my_results(judge_name):
     _, __, spreadsheet = get_services()
     try:
         raw_sheet = spreadsheet.worksheet(SHEET_NAME)
@@ -102,7 +102,7 @@ def get_my_results(judge_name):
 
     return results
 
-# ===== 결과 저장 (빠른 버전) =====
+# ===== 결과 저장 =====
 def save_result(judge_name, file_name, result, file_index):
     _, __, spreadsheet = get_services()
     raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
@@ -120,14 +120,17 @@ def save_result(judge_name, file_name, result, file_index):
 
             row_index = file_index + 2
             raw_sheet.update_cell(row_index, col_index, result)
-            get_my_results.clear()
+
+            # 세션 결과도 즉시 업데이트
+            st.session_state.my_results[file_name] = result
+            fetch_my_results.clear()
             break
 
         except gspread.exceptions.APIError:
             if attempt == 2:
                 st.error("저장 중 오류가 발생했습니다. 다시 시도해주세요.")
 
-# ===== 집계 업데이트 (완료시에만) =====
+# ===== 집계 업데이트 =====
 def update_summary():
     _, __, spreadsheet = get_services()
     raw_sheet = get_or_create_sheet(spreadsheet, SHEET_NAME)
@@ -159,7 +162,7 @@ st.set_page_config(page_title="사진 심사 시스템", layout="wide")
 st.title("🖼️ 사진 심사 시스템")
 
 # ===== 세션 초기화 =====
-for key, val in [('name', ''), ('index', 0), ('summary_updated', False), ('sheet_initialized', False)]:
+for key, val in [('name', ''), ('index', 0), ('summary_updated', False), ('sheet_initialized', False), ('my_results', None)]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -170,6 +173,7 @@ if not st.session_state.name:
     if st.button("심사 시작", use_container_width=True):
         if name_input.strip():
             st.session_state.name = name_input.strip()
+            st.session_state.my_results = None  # 이름 바뀌면 결과 초기화
             st.rerun()
         else:
             st.warning("이름을 입력해주세요!")
@@ -190,12 +194,15 @@ st.session_state.index = max(0, min(st.session_state.index, total_files - 1))
 # ===== 시트 자동 초기화 =====
 init_sheet_if_needed(files)
 
-# ===== 내 심사 결과 불러오기 =====
-my_results = get_my_results(st.session_state.name)
+# ===== 내 심사 결과 (세션에 저장) =====
+if st.session_state.my_results is None:
+    st.session_state.my_results = fetch_my_results(st.session_state.name)
+
+my_results = st.session_state.my_results
 done_count = len(my_results)
 all_done = done_count >= total_files
 
-# ===== 완료시 집계 업데이트 (한번만) =====
+# ===== 완료시 집계 업데이트 =====
 if all_done and not st.session_state.summary_updated:
     with st.spinner("집계 중..."):
         update_summary()
@@ -287,14 +294,12 @@ col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("✅ 합격", use_container_width=True):
         save_result(st.session_state.name, current_name, "합격", st.session_state.index)
-        my_results[current_name] = "합격"
         st.session_state.index = min(st.session_state.index + 1, total_files - 1)
         st.rerun()
 
 with col2:
     if st.button("❌ 불합격", use_container_width=True):
         save_result(st.session_state.name, current_name, "불합격", st.session_state.index)
-        my_results[current_name] = "불합격"
         st.session_state.index = min(st.session_state.index + 1, total_files - 1)
         st.rerun()
 
