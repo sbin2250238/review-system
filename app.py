@@ -156,7 +156,7 @@ def update_summary():
 
 # ===== 페이지 설정 =====
 st.set_page_config(page_title="사진 심사 시스템", layout="wide")
-st.title("🖼️ 사진 심사 시스템")
+st.title("🖼️ 농-Life 사진·영상 20주년 특별공모전 심사 시스템")
 
 # ===== 세션 초기화 =====
 for key, val in [('name', ''), ('index', 0), ('summary_updated', False), ('sheet_initialized', False)]:
