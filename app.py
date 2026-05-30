@@ -184,7 +184,7 @@ if not files:
 
 total_files = len(files)
 
-# ===== 인덱스 안전장치 (항상 범위 안으로) =====
+# ===== 인덱스 안전장치 =====
 st.session_state.index = max(0, min(st.session_state.index, total_files - 1))
 
 # ===== 시트 자동 초기화 =====
@@ -258,10 +258,6 @@ if all_done:
     st.balloons()
     st.success("🎉 모든 사진 심사를 완료했습니다! 수고하셨습니다.")
     st.info(f"✅ 합격: {list(my_results.values()).count('합격')}장 / ❌ 불합격: {list(my_results.values()).count('불합격')}장")
-    if st.button("🔄 다시 검토하기", use_container_width=True):
-        st.session_state.summary_updated = False
-        st.session_state.index = 0
-        st.rerun()
     st.stop()
 
 # ===== 메인 심사 화면 =====
