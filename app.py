@@ -156,7 +156,7 @@ def update_summary():
 
 # ===== 페이지 설정 =====
 st.set_page_config(page_title="사진 심사 시스템", layout="wide")
-st.title("🖼️ 농-Life 사진·영상 20주년 특별공모전 심사 시스템")
+st.title("🖼️ 사진 심사 시스템")
 
 # ===== 세션 초기화 =====
 for key, val in [('name', ''), ('index', 0), ('summary_updated', False), ('sheet_initialized', False)]:
@@ -183,6 +183,9 @@ if not files:
     st.stop()
 
 total_files = len(files)
+
+# ===== 인덱스 안전장치 (항상 범위 안으로) =====
+st.session_state.index = max(0, min(st.session_state.index, total_files - 1))
 
 # ===== 시트 자동 초기화 =====
 init_sheet_if_needed(files)
@@ -211,7 +214,7 @@ with st.sidebar:
             "번호 입력",
             min_value=1,
             max_value=total_files,
-            value=st.session_state.index + 1,
+            value=min(st.session_state.index + 1, total_files),
             step=1,
             label_visibility="collapsed"
         )
@@ -262,53 +265,47 @@ if all_done:
     st.stop()
 
 # ===== 메인 심사 화면 =====
-if st.session_state.index < total_files:
-    current_num = st.session_state.index + 1
-    current_file = files[st.session_state.index]
-    current_id = current_file["id"]
-    current_name = current_file["name"]
-    my_vote = my_results.get(current_name, "")
+current_num = st.session_state.index + 1
+current_file = files[st.session_state.index]
+current_id = current_file["id"]
+current_name = current_file["name"]
+my_vote = my_results.get(current_name, "")
 
-    st.subheader(f"📊 심사 중: {current_num}번째 / 총 {total_files}개")
+st.subheader(f"📊 심사 중: {current_num}번째 / 총 {total_files}개")
 
-    if my_vote:
-        st.info(f"현재 선택: {'✅ 합격' if my_vote == '합격' else '❌ 불합격'} (변경 가능)")
+if my_vote:
+    st.info(f"현재 선택: {'✅ 합격' if my_vote == '합격' else '❌ 불합격'} (변경 가능)")
 
-    st.markdown(
-        f'''<div style="display:flex; justify-content:center;">
-        <img src="https://drive.google.com/thumbnail?id={current_id}&sz=w1200"
-        style="max-height:60vh; max-width:100%; border-radius:8px; object-fit:contain;">
-        </div>''',
-        unsafe_allow_html=True
-    )
+st.markdown(
+    f'''<div style="display:flex; justify-content:center;">
+    <img src="https://drive.google.com/thumbnail?id={current_id}&sz=w1200"
+    style="max-height:60vh; max-width:100%; border-radius:8px; object-fit:contain;">
+    </div>''',
+    unsafe_allow_html=True
+)
 
-    st.write("---")
+st.write("---")
 
-    col1, col2, col3 = st.columns(3)
+col1, col2, col3 = st.columns(3)
 
-    with col1:
-        if st.button("✅ 합격", use_container_width=True):
-            save_result(st.session_state.name, current_name, "합격", st.session_state.index)
-            my_results[current_name] = "합격"
-            st.session_state.index += 1
-            st.rerun()
-
-    with col2:
-        if st.button("❌ 불합격", use_container_width=True):
-            save_result(st.session_state.name, current_name, "불합격", st.session_state.index)
-            my_results[current_name] = "불합격"
-            st.session_state.index += 1
-            st.rerun()
-
-    with col3:
-        if st.button("⬅️ 이전으로", use_container_width=True):
-            if st.session_state.index > 0:
-                st.session_state.index -= 1
-                st.rerun()
-            else:
-                st.warning("첫 번째입니다!")
-else:
-    undone = [i for i, f in enumerate(files) if f["name"] not in my_results]
-    if undone:
-        st.session_state.index = undone[0]
+with col1:
+    if st.button("✅ 합격", use_container_width=True):
+        save_result(st.session_state.name, current_name, "합격", st.session_state.index)
+        my_results[current_name] = "합격"
+        st.session_state.index = min(st.session_state.index + 1, total_files - 1)
         st.rerun()
+
+with col2:
+    if st.button("❌ 불합격", use_container_width=True):
+        save_result(st.session_state.name, current_name, "불합격", st.session_state.index)
+        my_results[current_name] = "불합격"
+        st.session_state.index = min(st.session_state.index + 1, total_files - 1)
+        st.rerun()
+
+with col3:
+    if st.button("⬅️ 이전으로", use_container_width=True):
+        if st.session_state.index > 0:
+            st.session_state.index -= 1
+            st.rerun()
+        else:
+            st.warning("첫 번째입니다!")
