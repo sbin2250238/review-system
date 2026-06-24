@@ -121,7 +121,6 @@ def save_result(judge_name, file_name, result, file_index):
             row_index = file_index + 2
             raw_sheet.update_cell(row_index, col_index, result)
 
-            # 세션 결과도 즉시 업데이트
             st.session_state.my_results[file_name] = result
             fetch_my_results.clear()
             break
@@ -162,7 +161,7 @@ st.set_page_config(page_title="사진 심사 시스템", layout="wide")
 st.title("🖼️ 사진 심사 시스템")
 
 # ===== 세션 초기화 =====
-for key, val in [('name', ''), ('index', 0), ('summary_updated', False), ('sheet_initialized', False), ('my_results', None)]:
+for key, val in [('name', ''), ('index', 0), ('summary_updated', False), ('sheet_initialized', False), ('my_results', None), ('review_mode', False)]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -173,7 +172,7 @@ if not st.session_state.name:
     if st.button("심사 시작", use_container_width=True):
         if name_input.strip():
             st.session_state.name = name_input.strip()
-            st.session_state.my_results = None  # 이름 바뀌면 결과 초기화
+            st.session_state.my_results = None
             st.rerun()
         else:
             st.warning("이름을 입력해주세요!")
@@ -228,6 +227,7 @@ with st.sidebar:
     with col_b:
         if st.button("이동", use_container_width=True):
             st.session_state.index = int(jump_num) - 1
+            st.session_state.review_mode = True
             st.rerun()
 
     st.write("---")
@@ -256,57 +256,12 @@ with st.sidebar:
         if not is_current:
             if st.button(f"{actual_index + 1}번으로 이동", key=f"thumb_{actual_index}", use_container_width=True):
                 st.session_state.index = actual_index
+                st.session_state.review_mode = True
                 st.rerun()
         else:
             st.button("👉 현재", key=f"thumb_{actual_index}", use_container_width=True, disabled=True)
 
-# ===== 완료 화면 =====
-if all_done:
+# ===== 완료 화면 (검토 모드 아닐 때만) =====
+if all_done and not st.session_state.review_mode:
     st.balloons()
-    st.success("🎉 모든 사진 심사를 완료했습니다! 수고하셨습니다.")
-    st.info(f"✅ 합격: {list(my_results.values()).count('합격')}장 / ❌ 불합격: {list(my_results.values()).count('불합격')}장")
-    st.stop()
-
-# ===== 메인 심사 화면 =====
-current_num = st.session_state.index + 1
-current_file = files[st.session_state.index]
-current_id = current_file["id"]
-current_name = current_file["name"]
-my_vote = my_results.get(current_name, "")
-
-st.subheader(f"📊 심사 중: {current_num}번째 / 총 {total_files}개")
-
-if my_vote:
-    st.info(f"현재 선택: {'✅ 합격' if my_vote == '합격' else '❌ 불합격'} (변경 가능)")
-
-st.markdown(
-    f'''<div style="display:flex; justify-content:center;">
-    <img src="https://drive.google.com/thumbnail?id={current_id}&sz=w1200"
-    style="max-height:60vh; max-width:100%; border-radius:8px; object-fit:contain;">
-    </div>''',
-    unsafe_allow_html=True
-)
-
-st.write("---")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    if st.button("✅ 합격", use_container_width=True):
-        save_result(st.session_state.name, current_name, "합격", st.session_state.index)
-        st.session_state.index = min(st.session_state.index + 1, total_files - 1)
-        st.rerun()
-
-with col2:
-    if st.button("❌ 불합격", use_container_width=True):
-        save_result(st.session_state.name, current_name, "불합격", st.session_state.index)
-        st.session_state.index = min(st.session_state.index + 1, total_files - 1)
-        st.rerun()
-
-with col3:
-    if st.button("⬅️ 이전으로", use_container_width=True):
-        if st.session_state.index > 0:
-            st.session_state.index -= 1
-            st.rerun()
-        else:
-            st.warning("첫 번째입니다!")
+    st.success("🎉 모든 사진
