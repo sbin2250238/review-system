@@ -264,4 +264,51 @@ with st.sidebar:
 # ===== 완료 화면 (검토 모드 아닐 때만) =====
 if all_done and not st.session_state.review_mode:
     st.balloons()
-    st.success("🎉 모든 사진
+    st.success("🎉 모든 사진 심사를 완료했습니다! 수고하셨습니다.")
+    st.info(f"✅ 합격: {list(my_results.values()).count('합격')}장 / ❌ 불합격: {list(my_results.values()).count('불합격')}장")
+    st.warning("수정이 필요하면 왼쪽 사이드바에서 번호를 클릭해 이동하세요.")
+    st.stop()
+
+# ===== 메인 심사 화면 =====
+current_num = st.session_state.index + 1
+current_file = files[st.session_state.index]
+current_id = current_file["id"]
+current_name = current_file["name"]
+my_vote = my_results.get(current_name, "")
+
+st.subheader(f"📊 {'🔍 검토 중' if st.session_state.review_mode else '심사 중'}: {current_num}번째 / 총 {total_files}개")
+
+if my_vote:
+    st.info(f"현재 선택: {'✅ 합격' if my_vote == '합격' else '❌ 불합격'} (변경 가능)")
+
+st.markdown(
+    f'''<div style="display:flex; justify-content:center;">
+    <img src="https://drive.google.com/thumbnail?id={current_id}&sz=w1200"
+    style="max-height:60vh; max-width:100%; border-radius:8px; object-fit:contain;">
+    </div>''',
+    unsafe_allow_html=True
+)
+
+st.write("---")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if st.button("✅ 합격", use_container_width=True):
+        save_result(st.session_state.name, current_name, "합격", st.session_state.index)
+        st.session_state.index = min(st.session_state.index + 1, total_files - 1)
+        st.rerun()
+
+with col2:
+    if st.button("❌ 불합격", use_container_width=True):
+        save_result(st.session_state.name, current_name, "불합격", st.session_state.index)
+        st.session_state.index = min(st.session_state.index + 1, total_files - 1)
+        st.rerun()
+
+with col3:
+    if st.button("⬅️ 이전으로", use_container_width=True):
+        if st.session_state.index > 0:
+            st.session_state.index -= 1
+            st.rerun()
+        else:
+            st.warning("첫 번째입니다!")
