@@ -66,7 +66,7 @@ def init_sheet_if_needed(files):
         st.session_state.sheet_initialized = True
         return
 
-    with st.spinner("⏳ 심사 목록 초기화 중... 잠시만 기다려주세요."):
+    with st.spinner("심사 목록 초기화 중... 잠시만 기다려주세요."):
         raw_sheet.clear()
         rows = [["파일명"]] + [[f["name"]] for f in files]
         raw_sheet.update("A1", rows)
@@ -158,7 +158,7 @@ def update_summary():
 
 # ===== 페이지 설정 =====
 st.set_page_config(page_title="사진 심사 시스템", layout="wide")
-st.title("🖼️ 사진 심사 시스템")
+st.title("사진 심사 시스템")
 
 # ===== 세션 초기화 =====
 for key, val in [('name', ''), ('index', 0), ('summary_updated', False), ('sheet_initialized', False), ('my_results', None), ('review_mode', False)]:
@@ -167,7 +167,7 @@ for key, val in [('name', ''), ('index', 0), ('summary_updated', False), ('sheet
 
 # ===== 이름 입력 =====
 if not st.session_state.name:
-    st.subheader("👤 심사위원 이름을 입력해주세요")
+    st.subheader("심사위원 이름을 입력해주세요")
     name_input = st.text_input("이름", placeholder="예: 홍길동")
     if st.button("심사 시작", use_container_width=True):
         if name_input.strip():
@@ -182,7 +182,7 @@ if not st.session_state.name:
 files = get_files_from_drive()
 
 if not files:
-    st.error("📁 드라이브 폴더에 이미지가 없거나 폴더 ID가 잘못되었습니다.")
+    st.error("드라이브 폴더에 이미지가 없거나 폴더 ID가 잘못되었습니다.")
     st.stop()
 
 total_files = len(files)
@@ -201,6 +201,9 @@ my_results = st.session_state.my_results
 done_count = len(my_results)
 all_done = done_count >= total_files
 
+# 빠진 사진 목록 계산
+missing_files = [f for f in files if f["name"] not in my_results]
+
 # ===== 완료시 집계 업데이트 =====
 if all_done and not st.session_state.summary_updated:
     with st.spinner("집계 중..."):
@@ -211,9 +214,15 @@ if all_done and not st.session_state.summary_updated:
 with st.sidebar:
     st.caption(f"심사위원: {st.session_state.name}")
     st.progress(done_count / total_files, text=f"진행률: {done_count} / {total_files}장")
+
+    if missing_files:
+        st.warning(f"⚠️ 미심사: {len(missing_files)}장 남음")
+    else:
+        st.success("✅ 전체 심사 완료")
+
     st.write("---")
 
-    st.caption("🔢 번호로 바로 이동")
+    st.caption("번호로 바로 이동")
     col_a, col_b = st.columns([3, 1])
     with col_a:
         jump_num = st.number_input(
@@ -231,7 +240,7 @@ with st.sidebar:
             st.rerun()
 
     st.write("---")
-    st.caption("📋 앞뒤 10개 목록")
+    st.caption("앞뒤 10개 목록")
 
     start = max(0, st.session_state.index - THUMB_RANGE)
     end = min(total_files, st.session_state.index + THUMB_RANGE + 1)
@@ -259,15 +268,27 @@ with st.sidebar:
                 st.session_state.review_mode = True
                 st.rerun()
         else:
-            st.button("👉 현재", key=f"thumb_{actual_index}", use_container_width=True, disabled=True)
+            st.button("현재", key=f"thumb_{actual_index}", use_container_width=True, disabled=True)
+
+    # 미심사 사진으로 바로 이동
+    if missing_files:
+        st.write("---")
+        if st.button(f"🔍 미심사 첫 사진으로 이동 ({len(missing_files)}장)", use_container_width=True):
+            first_missing_index = next(i for i, f in enumerate(files) if f["name"] not in my_results)
+            st.session_state.index = first_missing_index
+            st.session_state.review_mode = True
+            st.rerun()
 
 # ===== 완료 화면 (검토 모드 아닐 때만) =====
 if all_done and not st.session_state.review_mode:
     st.balloons()
     st.success("🎉 모든 사진 심사를 완료했습니다! 수고하셨습니다.")
     st.info(f"✅ 합격: {list(my_results.values()).count('합격')}장 / ❌ 불합격: {list(my_results.values()).count('불합격')}장")
-    st.warning("수정이 필요하면 왼쪽 사이드바에서 번호를 클릭해 이동하세요.")
     st.stop()
+
+# ===== 미완료 상태인데 모든 사진을 다 넘긴 경우 → 빠진 사진으로 이동 =====
+if not all_done and st.session_state.index >= total_files - 1 and current_name in my_results if files else False:
+    pass
 
 # ===== 메인 심사 화면 =====
 current_num = st.session_state.index + 1
@@ -276,7 +297,7 @@ current_id = current_file["id"]
 current_name = current_file["name"]
 my_vote = my_results.get(current_name, "")
 
-st.subheader(f"📊 {'🔍 검토 중' if st.session_state.review_mode else '심사 중'}: {current_num}번째 / 총 {total_files}개")
+st.subheader(f"{'🔍 검토 중' if st.session_state.review_mode else '심사 중'}: {current_num}번째 / 총 {total_files}개")
 
 if my_vote:
     st.info(f"현재 선택: {'✅ 합격' if my_vote == '합격' else '❌ 불합격'} (변경 가능)")
