@@ -286,9 +286,6 @@ if all_done and not st.session_state.review_mode:
     st.info(f"✅ 합격: {list(my_results.values()).count('합격')}장 / ❌ 불합격: {list(my_results.values()).count('불합격')}장")
     st.stop()
 
-# ===== 미완료 상태인데 모든 사진을 다 넘긴 경우 → 빠진 사진으로 이동 =====
-if not all_done and st.session_state.index >= total_files - 1 and current_name in my_results if files else False:
-    pass
 
 # ===== 메인 심사 화면 =====
 current_num = st.session_state.index + 1
