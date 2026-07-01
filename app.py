@@ -29,7 +29,7 @@ def get_or_create_sheet(spreadsheet, title):
     try:
         return spreadsheet.worksheet(title)
     except gspread.exceptions.WorksheetNotFound:
-        return spreadsheet.add_worksheet(title=title, rows=2000, cols=50)
+        return spreadsheet.add_worksheet(title=title, rows=3000, cols=50)
 
 # ===== 드라이브 폴더에서 파일 로드 =====
 @st.cache_data(ttl=60)
@@ -199,9 +199,9 @@ if st.session_state.my_results is None:
 
 my_results = st.session_state.my_results
 done_count = len(my_results)
+pass_count = list(my_results.values()).count("합격")
+fail_count = list(my_results.values()).count("불합격")
 all_done = done_count >= total_files
-
-# 빠진 사진 목록 계산
 missing_files = [f for f in files if f["name"] not in my_results]
 
 # ===== 완료시 집계 업데이트 =====
@@ -214,11 +214,12 @@ if all_done and not st.session_state.summary_updated:
 with st.sidebar:
     st.caption(f"심사위원: {st.session_state.name}")
     st.progress(done_count / total_files, text=f"진행률: {done_count} / {total_files}장")
+    st.caption(f"✅ 합격: {pass_count}건  |  ❌ 불합격: {fail_count}건")
 
     if missing_files:
         st.warning(f"⚠️ 미심사: {len(missing_files)}장 남음")
     else:
-        st.success("✅ 전체 심사 완료")
+        st.success("전체 심사 완료")
 
     st.write("---")
 
@@ -270,22 +271,20 @@ with st.sidebar:
         else:
             st.button("현재", key=f"thumb_{actual_index}", use_container_width=True, disabled=True)
 
-    # 미심사 사진으로 바로 이동
     if missing_files:
         st.write("---")
-        if st.button(f"🔍 미심사 첫 사진으로 이동 ({len(missing_files)}장)", use_container_width=True):
+        if st.button(f"미심사 첫 사진으로 이동 ({len(missing_files)}장)", use_container_width=True):
             first_missing_index = next(i for i, f in enumerate(files) if f["name"] not in my_results)
             st.session_state.index = first_missing_index
             st.session_state.review_mode = True
             st.rerun()
 
-# ===== 완료 화면 (검토 모드 아닐 때만) =====
+# ===== 완료 화면 =====
 if all_done and not st.session_state.review_mode:
     st.balloons()
     st.success("🎉 모든 사진 심사를 완료했습니다! 수고하셨습니다.")
-    st.info(f"✅ 합격: {list(my_results.values()).count('합격')}장 / ❌ 불합격: {list(my_results.values()).count('불합격')}장")
+    st.info(f"✅ 합격: {pass_count}장 / ❌ 불합격: {fail_count}장")
     st.stop()
-
 
 # ===== 메인 심사 화면 =====
 current_num = st.session_state.index + 1
