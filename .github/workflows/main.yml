@@ -3,6 +3,7 @@ name: Keep Awake
 on:
   schedule:
     - cron: '0 */1 * * *'  # 1시간마다 실행
+  workflow_dispatch:  # 수동 실행 버튼 추가
 
 jobs:
   wake:
