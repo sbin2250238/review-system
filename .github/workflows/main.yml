@@ -2,12 +2,12 @@ name: Keep Awake
 
 on:
   schedule:
-    - cron: '0 */1 * * *'  # 1시간마다 실행
-  workflow_dispatch:  # 수동 실행 버튼 추가
+    - cron: '0 */1 * * *'
+  workflow_dispatch:
 
 jobs:
   wake:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Streamlit App
-        run: curl -L https://review-system-krc.streamlit.app
+        run: curl -s -o /dev/null -w "%{http_code}" https://review-system-krc.streamlit.app || true
